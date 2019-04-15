@@ -61,7 +61,11 @@ public class ExampleEphemeralKeyProvider implements EphemeralKeyProvider {
                         }));
     }
 
+    public void destroy() {
+        mCompositeSubscription.unsubscribe();
+    }
+
     public interface ProgressListener {
-        void onStringResponse(String string);
+        void onStringResponse(@NonNull String string);
     }
 }

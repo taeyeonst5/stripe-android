@@ -21,6 +21,8 @@ import com.stripe.example.R;
 import com.stripe.example.controller.ErrorDialogHandler;
 import com.stripe.example.service.ExampleEphemeralKeyProvider;
 
+import java.lang.ref.WeakReference;
+
 /**
  * An example activity that handles working with a {@link CustomerSession}, allowing you to
  * add and select sources for the current customer.
@@ -34,6 +36,8 @@ public class CustomerSessionActivity extends AppCompatActivity {
     private ProgressBar mProgressBar;
     private ErrorDialogHandler mErrorDialogHandler;
 
+    @Nullable private ExampleEphemeralKeyProvider mEphemeralKeyProvider;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -44,16 +48,10 @@ public class CustomerSessionActivity extends AppCompatActivity {
         mSelectSourceButton = findViewById(R.id.btn_launch_payment_methods_acs);
         mSelectSourceButton.setEnabled(false);
         mErrorDialogHandler = new ErrorDialogHandler(getSupportFragmentManager());
-        CustomerSession.initCustomerSession(
-                new ExampleEphemeralKeyProvider(
-                    new ExampleEphemeralKeyProvider.ProgressListener() {
-                        @Override
-                        public void onStringResponse(String string) {
-                            if (string.startsWith("Error: ")) {
-                                mErrorDialogHandler.show(string);
-                            }
-                        }
-                    }));
+
+        mEphemeralKeyProvider = new ExampleEphemeralKeyProvider(
+                new ProgressListenerImpl(this));
+        CustomerSession.initCustomerSession(mEphemeralKeyProvider);
 
         mProgressBar.setVisibility(View.VISIBLE);
         CustomerSession.getInstance().retrieveCurrentCustomer(
@@ -65,6 +63,14 @@ public class CustomerSessionActivity extends AppCompatActivity {
                 launchWithCustomer();
             }
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (mEphemeralKeyProvider != null) {
+            mEphemeralKeyProvider.destroy();
+        }
+        super.onDestroy();
     }
 
     private void launchWithCustomer() {
@@ -121,6 +127,27 @@ public class CustomerSessionActivity extends AppCompatActivity {
             final CustomerSessionActivity activity = getActivity();
             if (activity != null) {
                 activity.onRetrieveError(errorMessage);
+            }
+        }
+    }
+
+    private static final class ProgressListenerImpl
+            implements ExampleEphemeralKeyProvider.ProgressListener {
+        @NonNull private final WeakReference<CustomerSessionActivity> mActivityRef;
+
+        private ProgressListenerImpl(@NonNull CustomerSessionActivity activity) {
+            this.mActivityRef = new WeakReference<>(activity);
+        }
+
+        @Override
+        public void onStringResponse(@NonNull String string) {
+            final CustomerSessionActivity activity = mActivityRef.get();
+            if (activity == null) {
+                return;
+            }
+
+            if (string.startsWith("Error: ")) {
+                activity.mErrorDialogHandler.show(string);
             }
         }
     }

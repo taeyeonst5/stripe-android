@@ -31,6 +31,7 @@ import com.stripe.example.R;
 import com.stripe.example.controller.ErrorDialogHandler;
 import com.stripe.example.service.ExampleEphemeralKeyProvider;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Currency;
 import java.util.Locale;
@@ -52,13 +53,15 @@ public class PaymentSessionActivity extends AppCompatActivity {
     private BroadcastReceiver mBroadcastReceiver;
     private Customer mCustomer;
     private ErrorDialogHandler mErrorDialogHandler;
-    private PaymentSession mPaymentSession;
     private ProgressBar mProgressBar;
     private TextView mResultTextView;
     private TextView mResultTitleTextView;
     private Button mSelectPaymentButton;
     private Button mSelectShippingButton;
     private PaymentSessionData mPaymentSessionData;
+
+    @Nullable private PaymentSession mPaymentSession;
+    @Nullable private ExampleEphemeralKeyProvider mEphemeralKeyProvider;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -106,29 +109,25 @@ public class PaymentSessionActivity extends AppCompatActivity {
         mSelectPaymentButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                mPaymentSession.presentPaymentMethodSelection();
+                if (mPaymentSession != null) {
+                    mPaymentSession.presentPaymentMethodSelection();
+                }
             }
         });
         mSelectShippingButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                mPaymentSession.presentShippingFlow();
+                if (mPaymentSession != null) {
+                    mPaymentSession.presentShippingFlow();
+                }
             }
         });
 
     }
 
     private void setupCustomerSession() {
-        CustomerSession.initCustomerSession(
-                new ExampleEphemeralKeyProvider(
-                        new ExampleEphemeralKeyProvider.ProgressListener() {
-                            @Override
-                            public void onStringResponse(String string) {
-                                if (string.startsWith("Error: ")) {
-                                    mErrorDialogHandler.show(string);
-                                }
-                            }
-                        }));
+        mEphemeralKeyProvider = new ExampleEphemeralKeyProvider(new ProgressListenerImpl(this));
+        CustomerSession.initCustomerSession(mEphemeralKeyProvider);
         CustomerSession.getInstance().retrieveCurrentCustomer(
                 new InitialCustomerRetrievalListener(this));
     }
@@ -202,13 +201,21 @@ public class PaymentSessionActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        mPaymentSession.handlePaymentData(requestCode, resultCode, data);
+        if (mPaymentSession != null) {
+            mPaymentSession.handlePaymentData(requestCode, resultCode, data);
+        }
     }
 
     @Override
     protected void onDestroy() {
+        if (mEphemeralKeyProvider != null) {
+            mEphemeralKeyProvider.destroy();
+        }
+
         super.onDestroy();
-        mPaymentSession.onDestroy();
+        if (mPaymentSession != null) {
+            mPaymentSession.onDestroy();
+        }
         LocalBroadcastManager.getInstance(this).unregisterReceiver(mBroadcastReceiver);
     }
 
@@ -336,6 +343,26 @@ public class PaymentSessionActivity extends AppCompatActivity {
             }
 
             activity.mProgressBar.setVisibility(View.INVISIBLE);
+        }
+    }
+
+    private static final class ProgressListenerImpl implements ExampleEphemeralKeyProvider.ProgressListener {
+        @NonNull private final WeakReference<PaymentSessionActivity> mActivityRef;
+
+        private ProgressListenerImpl(@NonNull PaymentSessionActivity activity) {
+            mActivityRef = new WeakReference<>(activity);
+        }
+
+        @Override
+        public void onStringResponse(@NonNull String string) {
+            final PaymentSessionActivity activity = mActivityRef.get();
+            if (activity == null) {
+                return;
+            }
+
+            if (string.startsWith("Error: ")) {
+                activity.mErrorDialogHandler.show(string);
+            }
         }
     }
 }
